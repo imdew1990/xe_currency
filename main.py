@@ -47,6 +47,7 @@ def fetch_multiple_exchange_rates(pairs):
     session.mount('https://', HTTPAdapter(max_retries=retries))
     
     with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
+        results = []
         future_to_pair = {executor.submit(get_exchange_rate, session, pair[0], pair[1]): pair for pair in pairs}
         
         for future in as_completed(future_to_pair):
@@ -55,7 +56,12 @@ def fetch_multiple_exchange_rates(pairs):
                 result = future.result()
                 if result:
                     currency_from, currency_to, rate = result
-                    results[(currency_from, currency_to)] = rate
+                    result_json = {
+                        "from": currency_from,
+                        "to": currency_to,
+                        "rate": rate
+                    }
+                    results.append(result_json)
                 else:
                     results[pair] = None
             except Exception as e:
@@ -68,12 +74,6 @@ def load_config():
         return json.load(f)
 
 def write_results_to_file(results):
-    print({
-            "timestamp": datetime.now().isoformat(),
-            "exchange_rates": results
-        })
-
-    return
     with open(config.OUTPUT_FILE, 'w') as f:
         json.dump({
             "timestamp": datetime.now().isoformat(),
