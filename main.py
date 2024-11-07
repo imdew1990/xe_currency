@@ -6,6 +6,9 @@ from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 import config
 import time
+import os
+import json
+from datetime import datetime
 
 def get_exchange_rate(session, currency_from, currency_to):
     url = f"{config.BASE_URL}?Amount={config.DEFAULT_AMOUNT}&From={currency_from}&To={currency_to}"
@@ -28,6 +31,8 @@ def get_exchange_rate(session, currency_from, currency_to):
     except Exception as e:
         print(f"Error fetching or parsing data for {currency_from} to {currency_to}: {e}")
         return currency_from, currency_to, None
+
+
 
 def fetch_multiple_exchange_rates(pairs):
     results = {}
@@ -58,30 +63,44 @@ def fetch_multiple_exchange_rates(pairs):
                 results[pair] = None
 
     return results
+def load_config():
+    with open(config.CONFIG_FILE, 'r') as f:
+        return json.load(f)
 
-currency_pairs = [
-    ("EUR", "GBP"),
-    ("USD", "EUR"),
-    ("JPY", "USD"),
-    ("AUD", "CAD"),
-    ("CHF", "GBP"),
-    ("ZAR", "USD"),
-    ("USD", "ZAR")
-]
+def write_results_to_file(results):
+    print({
+            "timestamp": datetime.now().isoformat(),
+            "exchange_rates": results
+        })
 
-start_time = time.time()
+    return
+    with open(config.OUTPUT_FILE, 'w') as f:
+        json.dump({
+            "timestamp": datetime.now().isoformat(),
+            "exchange_rates": [results]
+        }, f, indent=4)
+    print(f"Results written to {config.OUTPUT_FILE}")
 
-exchange_rates = fetch_multiple_exchange_rates(currency_pairs)
 
-end_time = time.time()
+def main():
+    last_modified_time = os.path.getmtime(config.CONFIG_FILE)
+    config_data = load_config()
+    
+    while True:
+        current_modified_time = os.path.getmtime(config.CONFIG_FILE)
+        if current_modified_time != last_modified_time:
+            print("Configuration file changed. Reloading...")
+            config_data = load_config()
+            last_modified_time = current_modified_time
+        
+        interval_seconds = config_data.get("interval_seconds", 60)
+        currency_pairs = config_data.get("currency_pairs", [])
+        
+        exchange_rates = fetch_multiple_exchange_rates(currency_pairs)
+        write_results_to_file(exchange_rates)
+        
+        print(f"Waiting {interval_seconds} seconds until next run...")
+        time.sleep(interval_seconds)
 
-for (currency_from, currency_to), rate in exchange_rates.items():
-    if rate is not None:
-        print(f"Exchange rate from {currency_from} to {currency_to}: {rate}")
-    else:
-        print(f"Could not retrieve exchange rate from {currency_from} to {currency_to}")
-
-print_end_time = time.time()
-
-execution_time = end_time - start_time
-print(f"\nTotal execution time: {execution_time:.2f} seconds")
+if __name__ == "__main__":
+    main()
