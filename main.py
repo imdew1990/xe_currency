@@ -5,6 +5,7 @@ import re
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 import config
+import time
 
 def get_exchange_rate(session, currency_from, currency_to):
     url = f"{config.BASE_URL}?Amount={config.DEFAULT_AMOUNT}&From={currency_from}&To={currency_to}"
@@ -68,9 +69,19 @@ currency_pairs = [
     ("USD", "ZAR")
 ]
 
+start_time = time.time()
+
 exchange_rates = fetch_multiple_exchange_rates(currency_pairs)
+
+end_time = time.time()
+
 for (currency_from, currency_to), rate in exchange_rates.items():
     if rate is not None:
         print(f"Exchange rate from {currency_from} to {currency_to}: {rate}")
     else:
         print(f"Could not retrieve exchange rate from {currency_from} to {currency_to}")
+
+print_end_time = time.time()
+
+execution_time = end_time - start_time
+print(f"\nTotal execution time: {execution_time:.2f} seconds")
