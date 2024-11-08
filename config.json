@@ -1,5 +1,5 @@
 {
-  "interval_seconds": 60,
+  "interval_seconds": 15,
   "currency_pairs": [
     [
       "EUR",
