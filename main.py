@@ -51,7 +51,7 @@ def get_exchange_rate(session, currency_from, currency_to):
         return currency_from, currency_to, None
 
 
-def fetch_multiple_exchange_rates(pairs):
+def fetch_multiple_exchange_rates(session, pairs):
     """
     Fetches exchange rates for multiple currency pairs concurrently.
 
@@ -68,15 +68,6 @@ def fetch_multiple_exchange_rates(pairs):
         Exception: If an error occurs during the fetching of exchange rates, it will be printed to the console.
     """
     results = []
-    session = requests.Session()
-
-    # Configure retry strategy
-    retries = Retry(
-        total=config.RETRY_COUNT,
-        backoff_factor=config.BACKOFF_FACTOR,
-        status_forcelist=config.RETRY_STATUS_CODES
-    )
-    session.mount('https://', HTTPAdapter(max_retries=retries))
 
     with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
         future_to_pair = {executor.submit(get_exchange_rate, session, pair[0], pair[1]): pair for pair in pairs}
@@ -184,6 +175,10 @@ def main():
         print("\t\tInvalid initial configuration file. Please check 'config.json'.")
         return
 
+    session = requests.Session()
+    retries = Retry(total=config.RETRY_COUNT, backoff_factor=config.BACKOFF_FACTOR, status_forcelist=config.RETRY_STATUS_CODES)
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+
     while True:
         current_modified_time = os.path.getmtime(config.CONFIG_FILE)
         if current_modified_time != last_modified_time:
@@ -199,7 +194,7 @@ def main():
         currency_pairs = config_data.get("currency_pairs", [])
 
         start_time = time.time()
-        exchange_rates = fetch_multiple_exchange_rates(currency_pairs)
+        exchange_rates = fetch_multiple_exchange_rates(session, currency_pairs)
         write_results_to_file(exchange_rates)
         
         end_time = time.time()
