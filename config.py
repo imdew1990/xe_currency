@@ -9,3 +9,5 @@ BACKOFF_FACTOR = 0.1
 RETRY_STATUS_CODES = [500, 502, 503, 504]
 CONFIG_FILE = 'config.json'
 OUTPUT_FILE = 'exchange_rates.json'
+PROXY_FILE = 'proxies.txt'
+PROXY_COOLDOWN_SECONDS = 600
