@@ -11,7 +11,7 @@ import json
 from datetime import datetime
 
 
-def get_exchange_rate(session, currency_from, currency_to):
+def get_exchange_rate(session, currency_from, currency_to, proxy=None):
     """
     Fetches the exchange rate between two currencies using a given session.
 
@@ -19,6 +19,7 @@ def get_exchange_rate(session, currency_from, currency_to):
         session (requests.Session): The session object to perform the HTTP request.
         currency_from (str): The currency code to convert from.
         currency_to (str): The currency code to convert to.
+        proxy (str,optional): The proxy URL to use for the request
 
     Returns:
         tuple: A tuple containing:
@@ -30,9 +31,10 @@ def get_exchange_rate(session, currency_from, currency_to):
         Exception: If there is an error fetching or parsing the data.
     """
     url = f"{config.BASE_URL}?Amount={config.DEFAULT_AMOUNT}&From={currency_from}&To={currency_to}"
+    proxies = {'http': proxy, 'https': proxy} if proxy else None
 
     try:
-        response = session.get(url, headers=config.HEADERS)
+        response = session.get(url, headers=config.HEADERS, proxies=proxies)
         response.raise_for_status()
 
         # Use lxml for faster parsing
@@ -110,6 +112,25 @@ def load_config():
     except Exception as e:
         return None
 
+
+def load_proxies():
+    """
+    Loads proxies from the proxies file specified in the configuration.
+
+    Returns:
+        list: A list of proxy URLs.
+    """
+    proxies = []
+    try:
+        with open(config.PROXY_FILE, 'r') as f:
+            for line in f:
+                proxy = line.strip()
+                if proxy:
+                    proxies.append(proxy)
+        return proxies
+    except Exeption as e:
+        print(f"Error loading proxies: {e}")
+        return []
 
 def write_results_to_file(results):
     """
