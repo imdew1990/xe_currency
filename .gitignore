@@ -163,3 +163,6 @@ cython_debug/
 
 #Ignore exchange_rates.json
 exchange_rates.json
+
+#Ignore default proxies file
+proxies.txt
