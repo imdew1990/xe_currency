@@ -9,9 +9,41 @@ import time
 import os
 import json
 from datetime import datetime
+import random
+import threading
 
 
-def get_exchange_rate(session, currency_from, currency_to):
+class ProxyManager:
+    def __init__(self, proxies, cooldown_seconds):
+        self.proxies = list(proxies)
+        self.cooldown_seconds = cooldown_seconds
+        self._banned_until = {}
+        self._lock = threading.Lock()
+
+    def _prune_bans(self):
+        now = time.time()
+        expired = [proxy for proxy, until in self._banned_until.items() if until <= now]
+        for proxy in expired:
+            del self._banned_until[proxy]
+
+    def get_available_proxies(self):
+        with self._lock:
+            self._prune_bans()
+            return [proxy for proxy in self.proxies if proxy not in self._banned_until]
+
+    def mark_blocked(self, proxy):
+        if not proxy:
+            return
+        with self._lock:
+            self._banned_until[proxy] = time.time() + self.cooldown_seconds
+
+    def get_proxy_sequence(self):
+        available = self.get_available_proxies()
+        random.shuffle(available)
+        return available
+
+
+def get_exchange_rate(session, proxy_manager, currency_from, currency_to):
     """
     Fetches the exchange rate between two currencies using a given session.
 
@@ -32,18 +64,51 @@ def get_exchange_rate(session, currency_from, currency_to):
     url = f"{config.BASE_URL}?Amount={config.DEFAULT_AMOUNT}&From={currency_from}&To={currency_to}"
 
     try:
-        response = session.get(url, headers=config.HEADERS)
-        response.raise_for_status()
+        direct_blocked = False
+        proxies = proxy_manager.get_proxy_sequence()
+        routes = [None] + proxies
 
-        # Use lxml for faster parsing
-        soup = BeautifulSoup(response.content, 'lxml')
-        rate_section = soup.find("p", class_="sc-63d8b7e3-1 bMdPIi")
+        for proxy in routes:
+            proxies_param = None
+            if proxy:
+                proxies_param = {"http": proxy, "https": proxy}
+            response = session.get(url, headers=config.HEADERS, proxies=proxies_param)
 
-        if rate_section:
-            rate_text = rate_section.get_text(strip=True)
-            match = re.search(r"(\d+\.\d+)", rate_text)
-            if match:
-                return currency_from, currency_to, float(match.group(1))
+            if response.status_code == 503:
+                if proxy:
+                    proxy_manager.mark_blocked(proxy)
+                else:
+                    direct_blocked = True
+                continue
+
+            response.raise_for_status()
+
+            # Use lxml for faster parsing
+            soup = BeautifulSoup(response.content, 'lxml')
+            rate_section = soup.find("p", class_="sc-63d8b7e3-1 bMdPIi")
+
+            if rate_section:
+                rate_text = rate_section.get_text(strip=True)
+                match = re.search(r"(\d+\.\d+)", rate_text)
+                if match:
+                    return currency_from, currency_to, float(match.group(1))
+            return currency_from, currency_to, None
+
+        if direct_blocked and proxies:
+            response = session.get(url, headers=config.HEADERS)
+            if response.status_code == 503:
+                return currency_from, currency_to, None
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.content, 'lxml')
+            rate_section = soup.find("p", class_="sc-63d8b7e3-1 bMdPIi")
+            if rate_section:
+                rate_text = rate_section.get_text(strip=True)
+                match = re.search(r"(\d+\.\d+)", rate_text)
+                if match:
+                    return currency_from, currency_to, float(match.group(1))
+            return currency_from, currency_to, None
+
         return currency_from, currency_to, None
 
     except Exception as e:
@@ -51,7 +116,7 @@ def get_exchange_rate(session, currency_from, currency_to):
         return currency_from, currency_to, None
 
 
-def fetch_multiple_exchange_rates(session, pairs):
+def fetch_multiple_exchange_rates(session, proxy_manager, pairs):
     """
     Fetches exchange rates for multiple currency pairs concurrently.
 
@@ -70,7 +135,10 @@ def fetch_multiple_exchange_rates(session, pairs):
     results = []
 
     with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
-        future_to_pair = {executor.submit(get_exchange_rate, session, pair[0], pair[1]): pair for pair in pairs}
+        future_to_pair = {
+            executor.submit(get_exchange_rate, session, proxy_manager, pair[0], pair[1]): pair
+            for pair in pairs
+        }
 
         for future in as_completed(future_to_pair):
             pair = future_to_pair[future]
@@ -178,6 +246,7 @@ def main():
     session = requests.Session()
     retries = Retry(total=config.RETRY_COUNT, backoff_factor=config.BACKOFF_FACTOR, status_forcelist=config.RETRY_STATUS_CODES)
     session.mount('https://', HTTPAdapter(max_retries=retries))
+    proxy_manager = ProxyManager(config.PROXIES, config.PROXY_COOLDOWN_SECONDS)
 
     while True:
         current_modified_time = os.path.getmtime(config.CONFIG_FILE)
@@ -194,7 +263,7 @@ def main():
         currency_pairs = config_data.get("currency_pairs", [])
 
         start_time = time.time()
-        exchange_rates = fetch_multiple_exchange_rates(session, currency_pairs)
+        exchange_rates = fetch_multiple_exchange_rates(session, proxy_manager, currency_pairs)
         write_results_to_file(exchange_rates)
         
         end_time = time.time()
